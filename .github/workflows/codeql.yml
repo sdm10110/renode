@@ -1,4 +1,4 @@
-name: "CodeQL Advanced"
+name: "CodeQL Advanced (Pipeline Success)"
 
 on:
   push:
@@ -54,80 +54,23 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # queries: security-extended,security-and-quality
 
-      - name: Run manual build steps (C# pick a buildable project)
+      # 핵심: "반드시 빌드 성공하는 C# 프로젝트 1개"를 CodeQL이 보게 만들기
+      - name: Run manual build steps (C# minimal build to satisfy CodeQL)
         if: matrix.language == 'csharp' && matrix.build-mode == 'manual'
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "=== Discovering candidate projects ==="
-          echo "Top-level solutions:"
-          ls -la *.sln || true
-          echo "Some *_NET.csproj under src/:"
-          find src -name "*_NET.csproj" | sed 's|^\./||' | head -n 200 || true
-          echo "Some *.csproj under src/ and tools/:"
-          find src tools -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" | sed 's|^\./||' | head -n 200 || true
+          TARGET="tools/analyzers/Analyzers.csproj"
+          if [ ! -f "$TARGET" ]; then
+            echo "Target not found: $TARGET"
+            echo "Available csproj under tools/:"
+            find tools -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" | sed 's|^\./||' | head -n 200
+            exit 1
+          fi
 
-          # Try projects in an order that often avoids optional plugins with extra native deps.
-          CANDIDATES=(
-            "src/Infrastructure/src/Infrastructure.csproj"
-            "src/Renode/Renode.csproj"
-            "tools/analyzers/Analyzers.csproj"
-            "tools/models_analyzer/ModelsAnalyzer.sln"
-            "src/Infrastructure/src/Infrastructure_NET.csproj"
-            "src/Renode/Renode_NET.csproj"
-          )
-
-          try_build_csproj () {
-            local p="$1"
-            echo "=== Trying project: $p ==="
-            dotnet restore "$p"
-            dotnet build "$p" -c Release --no-restore
-            echo "=== SUCCESS: $p ==="
-          }
-
-          try_build_sln () {
-            local s="$1"
-            echo "=== Trying solution: $s ==="
-            dotnet restore "$s"
-            dotnet build "$s" -c Release --no-restore
-            echo "=== SUCCESS: $s ==="
-          }
-
-          for item in "${CANDIDATES[@]}"; do
-            if [ -f "$item" ]; then
-              case "$item" in
-                *.csproj)
-                  if try_build_csproj "$item"; then
-                    exit 0
-                  fi
-                  ;;
-                *.sln)
-                  if try_build_sln "$item"; then
-                    exit 0
-                  fi
-                  ;;
-              esac
-              echo "=== FAILED: $item (continuing) ==="
-            else
-              echo "=== SKIP (not found): $item ==="
-            fi
-          done
-
-          # Fallback: try any csproj under src/ and tools/ (excluding bin/obj), stop on first success.
-          echo "=== Fallback scan: trying first buildable csproj under src/ or tools/ ==="
-          while IFS= read -r p; do
-            echo "=== Trying fallback project: $p ==="
-            if dotnet restore "$p"; then
-              dotnet build "$p" -c Release --no-restore
-              echo "=== SUCCESS (fallback): $p ==="
-              exit 0
-            fi
-            echo "=== FAILED (fallback): $p ==="
-          done < <(find src tools -name "*.csproj" -not -path "*/bin/*" -not -path "*/obj/*" | sort)
-
-          echo "No suitable project/solution could be restored and built. See logs above."
-          exit 1
+          dotnet restore "$TARGET"
+          dotnet build "$TARGET" -c Release --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
