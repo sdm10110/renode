@@ -1,4 +1,4 @@
-name: "CodeQL Advanced (Pipeline Success)"
+name: "CodeQL Advanced (Pipeline + Stabilized C++)"
 
 on:
   push:
@@ -13,6 +13,10 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-latest' }}
 
+    # (Option) Reduce surprise from C++ autoinstall; applies to all languages in this job.
+    env:
+      CODEQL_EXTRACTOR_CPP_AUTOINSTALL_DEPENDENCIES: "false"
+
     permissions:
       security-events: write
       packages: read
@@ -24,7 +28,7 @@ jobs:
       matrix:
         include:
           - language: c-cpp
-            build-mode: autobuild
+            build-mode: manual
           - language: csharp
             build-mode: manual
           - language: python
@@ -37,6 +41,8 @@ jobs:
           submodules: recursive
           fetch-depth: 0
 
+      # --- Toolchain setup (only when needed) ---
+
       - name: Setup .NET (for C#)
         if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@v4
@@ -47,6 +53,8 @@ jobs:
         if: matrix.language == 'csharp'
         run: dotnet --info
 
+      # --- Initialize CodeQL ---
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -54,8 +62,26 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # queries: security-extended,security-and-quality
 
-      # 핵심: "반드시 빌드 성공하는 C# 프로젝트 1개"를 CodeQL이 보게 만들기
-      - name: Run manual build steps (C# minimal build to satisfy CodeQL)
+      # --- Manual build steps for C/C++ (more controlled than autobuild) ---
+      - name: Run manual build steps (C/C++)
+        if: matrix.language == 'c-cpp' && matrix.build-mode == 'manual'
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          # Renode uses build scripts; ensure executable and run.
+          if [ -f "./build.sh" ]; then
+            chmod +x ./build.sh
+          fi
+
+          # If build.sh supports help, print it (non-fatal).
+          ./build.sh --help || true
+
+          # Run the build. If Renode requires extra deps, this may fail; the logs will show missing packages.
+          ./build.sh
+
+      # --- Manual build steps for C# (minimal guaranteed build to satisfy CodeQL) ---
+      - name: Run manual build steps (C# minimal build)
         if: matrix.language == 'csharp' && matrix.build-mode == 'manual'
         shell: bash
         run: |
@@ -72,6 +98,7 @@ jobs:
           dotnet restore "$TARGET"
           dotnet build "$TARGET" -c Release --no-restore
 
+      # --- Perform analysis ---
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
         with:
