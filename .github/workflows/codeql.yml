@@ -54,32 +54,24 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # queries: security-extended,security-and-quality
 
-      - name: Run manual build steps
-        if: matrix.build-mode == 'manual'
+      - name: Run manual build steps (C# core project only)
+        if: matrix.language == 'csharp' && matrix.build-mode == 'manual'
         shell: bash
         run: |
           set -euxo pipefail
 
-          echo "Listing solutions and projects (top-level):"
-          ls -la *.sln || true
-          find . -maxdepth 4 \( -name "*.sln" -o -name "*.csproj" \) | sed 's|^\./||' | head -n 200 || true
+          # Build a core project only to avoid optional plugins pulling incompatible packages.
+          CORE="src/Infrastructure/src/Infrastructure_NET.csproj"
 
-          # Prefer Renode_NET.sln if present (often best for modern .NET)
-          if [ -f "Renode_NET.sln" ]; then
-            SLN="Renode_NET.sln"
-          elif [ -f "Renode.sln" ]; then
-            SLN="Renode.sln"
-          elif ls *.sln >/dev/null 2>&1; then
-            SLN="$(ls *.sln | head -n 1)"
-          else
-            echo "No .sln found at repository root."
+          if [ ! -f "$CORE" ]; then
+            echo "Core project not found at: $CORE"
+            echo "Available NET csproj candidates under src/:"
+            find src -name "*_NET.csproj" | sed 's|^\./||' | head -n 200
             exit 1
           fi
 
-          echo "Selected solution: $SLN"
-
-          dotnet restore "$SLN"
-          dotnet build "$SLN" -c Release --no-restore
+          dotnet restore "$CORE"
+          dotnet build "$CORE" -c Release --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
