@@ -1,14 +1,3 @@
-# For most projects, this workflow file will not need changing; you simply need
-# to commit it to your repository.
-#
-# You may wish to alter this file to override the set of languages analyzed,
-# or to provide custom queries or build logic.
-#
-# ******** NOTE ********
-# We have attempted to detect the languages in your repository. Please check
-# the `language` matrix defined below to confirm you have the correct set of
-# supported CodeQL languages.
-#
 name: "CodeQL Advanced"
 
 on:
@@ -40,20 +29,24 @@ jobs:
             build-mode: manual
           - language: python
             build-mode: none
-        # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (with submodules)
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
 
-      # Setup steps only needed for manual C# builds.
       - name: Setup .NET (for C#)
         if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '8.0.x'
 
-      # Initializes the CodeQL tools for scanning.
+      - name: Verify .NET SDK (for C#)
+        if: matrix.language == 'csharp'
+        run: dotnet --info
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
@@ -61,33 +54,32 @@ jobs:
           build-mode: ${{ matrix.build-mode }}
           # queries: security-extended,security-and-quality
 
-      # Manual build steps (only runs when build-mode == manual).
       - name: Run manual build steps
         if: matrix.build-mode == 'manual'
         shell: bash
         run: |
           set -euxo pipefail
 
-          # Prefer building a solution if present at repo root.
-          if ls *.sln >/dev/null 2>&1; then
+          echo "Listing solutions and projects (top-level):"
+          ls -la *.sln || true
+          find . -maxdepth 4 \( -name "*.sln" -o -name "*.csproj" \) | sed 's|^\./||' | head -n 200 || true
+
+          # Prefer Renode_NET.sln if present (often best for modern .NET)
+          if [ -f "Renode_NET.sln" ]; then
+            SLN="Renode_NET.sln"
+          elif [ -f "Renode.sln" ]; then
+            SLN="Renode.sln"
+          elif ls *.sln >/dev/null 2>&1; then
             SLN="$(ls *.sln | head -n 1)"
-            dotnet restore "$SLN"
-            dotnet build "$SLN" -c Release --no-restore
-            exit 0
-          fi
-
-          # Otherwise, build the first project we can find (excluding bin/obj).
-          CSPROJ="$(find . -name "*.csproj" \
-            -not -path "*/bin/*" -not -path "*/obj/*" \
-            | head -n 1)"
-
-          if [ -z "${CSPROJ:-}" ]; then
-            echo "No .sln or .csproj found for manual C# build."
+          else
+            echo "No .sln found at repository root."
             exit 1
           fi
 
-          dotnet restore "$CSPROJ"
-          dotnet build "$CSPROJ" -c Release --no-restore
+          echo "Selected solution: $SLN"
+
+          dotnet restore "$SLN"
+          dotnet build "$SLN" -c Release --no-restore
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
