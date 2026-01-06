@@ -60,6 +60,8 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          queries: security-extended,security-and-quality
+
           # queries: security-extended,security-and-quality
 
       # --- Manual build steps for C/C++ (more controlled than autobuild) ---
